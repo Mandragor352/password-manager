@@ -66,7 +66,7 @@ sudo apt install libssl-dev libargon2-dev nlohmann-json3-dev
 При запуске программа запросит мастер-пароль:
 
 ```text
-Password Manager v0.1
+Password Manager
 Enter master password:
 ```
 
