@@ -75,12 +75,24 @@ void save(const Vault& vault, std::string& password){
     
 
     std::ofstream file("vault.dat", std::ios::binary);
+    file.write("PMGR", 4);
     file.write((char*)raw.data(), raw.size());
 }
 
 bool load(Vault& vault, std::string& password){
     std::ifstream file("vault.dat", std::ios::binary);
     if (!file.is_open()) return true;
+
+    char magic[4];
+
+    if(!file.read(magic, 4)){
+        return false;
+    }
+
+    if(std::memcmp(magic, "PMGR", 4) != 0){
+        return false;
+    }
+
 
     std::vector<uint8_t> raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
