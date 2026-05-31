@@ -72,14 +72,15 @@ void save(const Vault& vault, std::string& password){
     EnData enc = encrypt(plaintext, password);
 
     auto raw = pack(enc);
+    
 
     std::ofstream file("vault.dat", std::ios::binary);
     file.write((char*)raw.data(), raw.size());
 }
 
-void load(Vault& vault, std::string& password){
+bool load(Vault& vault, std::string& password){
     std::ifstream file("vault.dat", std::ios::binary);
-    if (!file.is_open()) return;
+    if (!file.is_open()) return true;
 
     std::vector<uint8_t> raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
@@ -91,7 +92,7 @@ void load(Vault& vault, std::string& password){
         plaintext = decrypt(enc, password);
     } catch(...){
         std::cout << "Wrong password or corrupted vault\n";
-        return;
+        return false;
     }
     json j = json::parse(plaintext);
 
@@ -105,4 +106,6 @@ void load(Vault& vault, std::string& password){
 
         vault.entries.push_back(e);
     }
+
+    return true;
 }

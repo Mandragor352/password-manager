@@ -4,6 +4,7 @@
 #include <argon2.h>
 #include <stdexcept>
 #include <cstring>
+#include <memory>
 
 std::vector<uint8_t> randBytes(size_t size){
     std::vector<uint8_t> buf(size);
@@ -18,7 +19,7 @@ std::vector<uint8_t> randBytes(size_t size){
 std::vector<uint8_t> deriveKey(const std::string& password, std::vector<uint8_t>& salt){
     std::vector<uint8_t> key(32);
     
-    int res = argon2d_hash_raw(3, 65536, 1, password.data(), password.size(), salt.data(), salt.size(), key.data(), key.size());
+    int res = argon2id_hash_raw(3, 65536, 1, password.data(), password.size(), salt.data(), salt.size(), key.data(), key.size());
 
     if(res != ARGON2_OK){
         throw std::runtime_error("Argon2 failed");
@@ -66,27 +67,24 @@ EnData encrypt(const std::string& plaintext, const std::string& password){
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.tag.data()) != 1)
         throw std::runtime_error("GET_TAG failed");
 
-    EVP_CIPHER_CTX_free(ctx);
+    OPENSSL_cleanse(key.data(), key.size());
 
     return out;
 }
 
-std::string decrypt(
-    const EnData& data,
-    std::string& password)
-{
+std::string decrypt(const EnData& data, std::string& password){
     auto key = deriveKey(password, const_cast<std::vector<uint8_t>&>(data.salt));
 
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    auto ctx = std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)>(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
     if (!ctx) throw std::runtime_error("CTX alloc failed");
 
-    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1)
+    if (EVP_DecryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr, nullptr, nullptr) != 1)
         throw std::runtime_error("DecryptInit failed");
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, data.nonce.size(), nullptr) != 1)
+    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_IVLEN, data.nonce.size(), nullptr) != 1)
         throw std::runtime_error("IVLEN set failed");
 
-    if (EVP_DecryptInit_ex(ctx, nullptr, nullptr, key.data(), data.nonce.data()) != 1)
+    if (EVP_DecryptInit_ex(ctx.get(), nullptr, nullptr, key.data(), data.nonce.data()) != 1)
         throw std::runtime_error("Key init failed");
 
     std::string plaintext;
@@ -95,7 +93,7 @@ std::string decrypt(
     int len = 0, total = 0;
 
     if (EVP_DecryptUpdate(
-            ctx,
+            ctx.get(),
             reinterpret_cast<uint8_t*>(plaintext.data()),
             &len,
             data.ciphertext.data(),
@@ -104,23 +102,23 @@ std::string decrypt(
 
     total = len;
 
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
-                            const_cast<uint8_t*>(data.tag.data())) != 1)
+    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, 16, const_cast<uint8_t*>(data.tag.data())) != 1)
         throw std::runtime_error("SET_TAG failed");
 
     int ret = EVP_DecryptFinal_ex(
-        ctx,
+        ctx.get(),
         reinterpret_cast<uint8_t*>(plaintext.data()) + len,
         &len
     );
 
-    EVP_CIPHER_CTX_free(ctx);
 
     if (ret <= 0)
         throw std::runtime_error("Invalid password or corrupted data");
 
     total += len;
     plaintext.resize(total);
+
+    OPENSSL_cleanse(key.data(), key.size());
 
     return plaintext;
 }
